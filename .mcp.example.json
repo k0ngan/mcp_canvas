@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "canvas": {
+      "command": "npx",
+      "args": ["-y", "github:k0ngan/mcp_canvas"],
+      "env": {
+        "CANVAS_BASE_URL": "https://canvas.tu-institucion.edu",
+        "CANVAS_COOKIE_FILE": "C:\\Users\\tu-usuario\\AppData\\Local\\mcp-canvas\\canvas_session",
+        "CANVAS_VAULT_DIR": "C:\\ruta\\a\\tu\\vault",
+        "CANVAS_SUBDIR": "Canvas",
+        "CANVAS_UPLOAD_EXTENSIONS": ".pdf,.sql,.zip"
+      }
+    }
+  }
+}

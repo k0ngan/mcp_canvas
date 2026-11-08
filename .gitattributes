@@ -1,0 +1,3 @@
+# El repo guarda LF; el fin de línea de las notas del vault lo decide el
+# servidor en tiempo de ejecución, no git.
+* text=auto eol=lf

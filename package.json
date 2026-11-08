@@ -1,0 +1,33 @@
+{
+  "name": "mcp-canvas",
+  "version": "2.0.0",
+  "description": "Servidor MCP para Canvas LMS que deja un vault de Obsidian sincronizado y etiquetado en la misma llamada con la que lee, y permite entregar tareas con confirmacion explicita.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/k0ngan/mcp_canvas.git"
+  },
+  "bin": {
+    "mcp-canvas": "bin/mcp-canvas.mjs"
+  },
+  "exports": {
+    ".": "./src/server.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "AGENTS.md",
+    "LICENSE",
+    ".mcp.example.json"
+  ],
+  "scripts": {
+    "start": "node bin/mcp-canvas.mjs",
+    "check": "node --check src/server.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

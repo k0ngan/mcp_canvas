@@ -1,0 +1,8 @@
+node_modules/
+.cookie
+.cookie.*
+.env
+.env.*
+*.part
+canvas_session
+vault-prueba/
