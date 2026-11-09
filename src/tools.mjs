@@ -7,7 +7,9 @@ import { describeConfig } from "./config.mjs";
 import { detectTerm, latestTerm, termParts } from "./tags.mjs";
 import { VaultWriter, commonTagContext, sanitizeName } from "./vault.mjs";
 import { Uploader } from "./upload.mjs";
+import { get as frontmatterGet, parse as parseFrontmatter } from "./frontmatter.mjs";
 import * as notes from "./notes.mjs";
+import * as study from "./study.mjs";
 
 const TERM_ARG = /^20\d{2}-[12]$/;
 
@@ -635,6 +637,88 @@ export class Toolbox {
     return { ...result, vault: writer.report() };
   }
 
+  // --- material de estudio -----------------------------------------------
+
+  // Junta el material ya sincronizado, con su procedencia. No redacta nada:
+  // la prosa la escribe el agente, citando solo estas fuentes.
+  async studySources(args) {
+    const course = await this.courseLocal(args.course_id);
+    const writer = this.writer({ dry_run: true });
+    if (!writer.enabled) {
+      throw new CanvasError("Se requiere CANVAS_VAULT_DIR: las guías se arman con el material del vault.");
+    }
+    const folder = writer.courseFolder(course);
+    const paquete = study.collectSources(folder, {
+      tema: args.tema || "",
+      fileIds: args.file_ids || null,
+      tipos: args.tipos || null,
+      maxChars: Math.min(Number(args.max_chars) || 60_000, 400_000),
+    });
+    return { curso: { id: Number(course.id), name: course.name }, ...paquete };
+  }
+
+  async writeStudyGuide(args) {
+    const course = await this.courseLocal(args.course_id);
+    const writer = this.writer(args);
+    if (!writer.enabled) {
+      throw new CanvasError("Se requiere CANVAS_VAULT_DIR para escribir la guía.");
+    }
+    const folder = writer.courseFolder(course);
+    const catalogo = study.inventory(folder).map(fuente => ({
+      cita: fuente.cita,
+      nota: fuente.nota,
+      titulo: fuente.titulo,
+    }));
+    if (!catalogo.length) {
+      throw new CanvasError(
+        `No hay material sincronizado en ${folder.wiki}. Corre canvas_sync_course antes de escribir la guía.`,
+      );
+    }
+
+    const note = study.buildGuideNote(folder, contextFor(course, this.config), {
+      titulo: args.titulo,
+      secciones: args.secciones,
+      catalogo,
+      tagsExtra: args.tags || [],
+      fechaPrueba: args.fecha_prueba || null,
+      hora: args.hora || null,
+      sala: args.sala || null,
+      tema: args.tema || null,
+    });
+    const resultado = writer.upsert(note.relativePath, note);
+    return {
+      curso: { id: Number(course.id), name: course.name },
+      guia: note.relativePath.split(path.sep).join("/"),
+      estado: resultado.estado,
+      citas: note.citas,
+      secciones: args.secciones.length,
+      vault: writer.report(),
+    };
+  }
+
+  // Resuelve el curso sin pegarle a Canvas si el vault ya lo tiene: las guías
+  // se arman con material local y no deberían fallar por una cookie vencida.
+  async courseLocal(courseId) {
+    const id = numericId(courseId);
+    if (this.config.vaultDir) {
+      const writer = new VaultWriter(this.config, { dryRun: true });
+      const existente = writer.findExisting(id, null);
+      if (existente) {
+        const curso = path.join(this.config.vaultDir, existente, "Curso.md");
+        if (fs.existsSync(curso)) {
+          const parsed = parseFrontmatter(fs.readFileSync(curso, "utf8"));
+          const nombre = String(parsed.body).match(/^#\s+(.+)$/m)?.[1]?.trim();
+          return {
+            id,
+            name: nombre || `Curso ${id}`,
+            course_code: frontmatterGet(parsed.entries, "course_code") || null,
+          };
+        }
+      }
+    }
+    return this.courseById(id);
+  }
+
   // --- estado ------------------------------------------------------------
 
   async vaultStatus() {
@@ -828,6 +912,63 @@ export const TOOLS = [
     },
   },
   {
+    name: "canvas_study_sources",
+    description: "Junta el material de un curso que ya está sincronizado en el vault (texto de los adjuntos, tareas, páginas, módulos y anuncios) y lo devuelve en pasajes con su clave de cita. Es el paso previo obligatorio para escribir una guía de estudio: la guía se redacta SOLO con estos pasajes, sin agregar conocimiento propio. Filtra por tema para no traer el curso completo.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        course_id: { type: "integer", minimum: 1 },
+        tema: { type: "string", description: "Palabras clave; devuelve los pasajes que las mencionan" },
+        file_ids: { type: "array", items: { type: "integer" }, description: "Limita a estos adjuntos" },
+        tipos: {
+          type: "array",
+          items: { enum: ["archivo", "tarea", "pagina", "modulo", "anuncio", "discusion", "curso"] },
+        },
+        max_chars: { type: "integer", minimum: 1000, description: "Presupuesto de caracteres (60000 por defecto)" },
+      },
+      required: ["course_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "canvas_write_study_guide",
+    description: "Escribe en el vault una guía de estudio que tú redactaste, con el frontmatter y los tags del ecosistema (tipo: guia_estudio). Cada sección debe declarar en `fuentes` las claves de cita que devolvió canvas_study_sources; si una clave no corresponde a material sincronizado de ese curso, la llamada falla. Así la guía queda anclada a Canvas y auditable.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        course_id: { type: "integer", minimum: 1 },
+        titulo: { type: "string", description: "Nombre de la nota, por ejemplo 'Prueba 2 - guia de estudio'" },
+        tema: { type: "string" },
+        secciones: {
+          type: "array",
+          minItems: 1,
+          items: {
+            type: "object",
+            properties: {
+              encabezado: { type: "string" },
+              cuerpo: { type: "string" },
+              fuentes: {
+                type: "array",
+                minItems: 1,
+                items: { type: "string" },
+                description: "Claves de cita, por ejemplo archivo:1218706 o anuncio:130285",
+              },
+            },
+            required: ["encabezado", "cuerpo", "fuentes"],
+            additionalProperties: false,
+          },
+        },
+        tags: { type: "array", items: { type: "string" }, description: "Tags extra, por ejemplo prueba-1" },
+        fecha_prueba: { type: "string", description: "AAAA-MM-DD, si la guía es para una evaluación" },
+        hora: { type: "string" },
+        sala: { type: "string" },
+        dry_run: { type: "boolean" },
+      },
+      required: ["course_id", "titulo", "secciones"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "canvas_vault_status",
     description: "Muestra dónde escribe el servidor, qué arquetipos maneja y qué carpetas de curso detecta en el vault.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
@@ -848,6 +989,8 @@ export function dispatch(toolbox, name, args = {}) {
     case "canvas_download_pdf": return toolbox.downloadPdf(args);
     case "canvas_export_course_sources": return toolbox.exportCourseSources(args);
     case "canvas_submit_assignment": return toolbox.submitAssignment(args);
+    case "canvas_study_sources": return toolbox.studySources(args);
+    case "canvas_write_study_guide": return toolbox.writeStudyGuide(args);
     case "canvas_vault_status": return toolbox.vaultStatus(args);
     default: {
       const error = new Error(`Herramienta desconocida: ${name}`);

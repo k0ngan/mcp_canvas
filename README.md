@@ -161,6 +161,13 @@ Sincronización y exportación:
 | `canvas_export_course_sources` | `course_id`: instrucciones, páginas, módulos, enlaces y adjuntos como JSON |
 | `canvas_vault_status` | sin argumentos: dónde escribe y qué cursos detecta |
 
+Guías de estudio:
+
+| Herramienta | Entrada |
+|---|---|
+| `canvas_study_sources` | `course_id`, `tema`, `file_ids`, `tipos`, `max_chars`: junta el material del vault en pasajes citables |
+| `canvas_write_study_guide` | `course_id`, `titulo`, `secciones[]`: escribe la guía validando que cada cita exista |
+
 Todas aceptan `dry_run: true`, que devuelve el plan completo sin escribir. Cada respuesta trae un
 bloque `vault` con el recuento de notas creadas, actualizadas, con cuerpo preservado y sin cambios.
 
@@ -194,6 +201,61 @@ El flujo son los 3 pasos de Canvas: pedir los parámetros de subida, subir los b
 Canvas indique y confirmar para obtener el `file_id`. Ese destino suele ser un storage externo, y
 **nunca recibe la cookie ni el token CSRF**. Al terminar, la nota de la tarea en el vault se
 actualiza con el estado del envío.
+
+## Guías de estudio ancladas a Canvas
+
+Una guía de estudio es prosa, y la prosa la escribe el modelo. El problema es el de siempre: un
+modelo puede redactar algo que suena bien y no está en el material del curso. Acá el reparto es
+explícito — **el código junta y cita las fuentes, el modelo solo redacta con lo que recibió**.
+
+Son dos pasos.
+
+**1. `canvas_study_sources`** junta el material que la sincronización ya dejó en el vault: el texto
+de los adjuntos, las tareas, las páginas, los módulos y los anuncios. Devuelve pasajes, cada uno
+con una clave de cita (`archivo:1218706`, `anuncio:130285`, `tarea:68145`…), de dónde salió el
+texto y a qué nota del vault corresponde.
+
+```json
+{ "course_id": 4101, "tema": "ley de Gauss simetría esférica", "max_chars": 20000 }
+```
+
+Con `tema` busca los pasajes que lo mencionan en vez de traer el curso completo, y los elige por
+densidad de términos, no por orden de aparición: si no, el índice de un PDF le gana al capítulo que
+de verdad explica el tema. Las tablas de contenido se descartan. Todo lo que queda fuera se
+reporta con su motivo en `excluidas` —`sin texto extraído`, `no menciona el tema`, `no cabía en el
+presupuesto`— así que nunca hay recorte silencioso.
+
+**2. `canvas_write_study_guide`** escribe la guía que redactaste. Cada sección declara en `fuentes`
+las claves que usó:
+
+```json
+{ "course_id": 4101, "titulo": "Prueba 2 - guia de estudio", "tema": "Ley de Gauss",
+  "tags": ["prueba-2"], "fecha_prueba": "2026-12-04",
+  "secciones": [
+    { "encabezado": "Ley de Gauss",
+      "cuerpo": "El flujo neto depende solo de la carga encerrada.",
+      "fuentes": ["archivo:1218919", "archivo:1218706"] }
+  ] }
+```
+
+Si una clave no corresponde a material sincronizado de ese curso, **la llamada falla** y nombra la
+cita inventada. Una sección sin fuentes también falla. Esa es la garantía mecánica de que la guía
+sale del material de Canvas y no de la memoria del modelo.
+
+La nota queda con `tipo: guia_estudio`, los tags del ecosistema, la lista de `fuentes` en el
+frontmatter y una sección "Material citado" con wikilinks que resuelven en Obsidian, así que
+cualquier afirmación se puede rastrear hasta el archivo del que salió.
+
+### Qué necesita antes
+
+El texto de los PDF, Word y PowerPoint tiene que estar extraído: `canvas_study_sources` lee
+`<curso>/Fuentes extraidas/<file_id>.txt`. Este servidor no extrae PDF —serían dependencias— así
+que esa parte la hace un extractor aparte. Lo que sí lee directo de `Descargas/` son los formatos
+de texto (`.txt`, `.md`, `.sql`, `.csv`, `.json`, `.tex`, `.py`, `.ipynb`…). Si falta material, lo
+dirá en `excluidas` con `sin texto extraído` en lugar de inventarlo.
+
+Lo que la persona escribió debajo del centinela `canvas:fin` **no se devuelve como fuente**: la
+guía se arma con lo que vino de Canvas, no con los apuntes propios.
 
 ## Cómo convive con las notas que ya existen
 

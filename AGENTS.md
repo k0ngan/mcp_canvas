@@ -51,6 +51,27 @@ validación. "Entrega esto" es permiso para empezar el flujo, no para saltarse e
 No amplíes `CANVAS_UPLOAD_EXTENSIONS` por tu cuenta para que pase un archivo que la allowlist
 rechazó. Si hace falta otra extensión, dilo y que la persona decida.
 
+## Guías de estudio: solo con material de Canvas
+
+La guía la redactas tú, pero **no con lo que sabes de la materia: con lo que devolvió
+`canvas_study_sources`**. Esa es la regla completa.
+
+1. `canvas_study_sources` con `course_id` y `tema`. Devuelve pasajes con su clave de cita.
+2. Redacta cada sección apoyándote en esos pasajes y anota en `fuentes` las claves que usaste.
+3. `canvas_write_study_guide` con las secciones. Valida que cada cita exista; si inventaste una,
+   falla y te la nombra.
+
+Lo que no está en los pasajes **no va en la guía**. Si el material no alcanza para cubrir un tema,
+escríbelo en la guía ("el material del curso no cubre X") en lugar de completarlo de memoria: la
+persona necesita saber que ahí falta material, no leer un relleno que suena bien.
+
+Revisa `excluidas` antes de redactar. Si muchas fuentes salen con `sin texto extraído`, la guía va
+a quedar coja: dilo en vez de compensarlo. Y si una fuente valiosa quedó fuera por presupuesto,
+vuelve a pedirla con `file_ids` o con un `max_chars` mayor.
+
+No uses `canvas_study_sources` como excusa para leer el curso entero y después escribir de memoria:
+cada sección tiene que poder rastrearse a una cita concreta.
+
 ## Al usar el write-through
 
 - **El frontmatter y los tags los escribe el servidor.** No edites tags a mano en las notas

@@ -124,5 +124,7 @@ function needsQuotes(text) {
   // comillas, igual que en las notas del vault.
   if (/^-?\d+(\.\d+)?$/.test(text)) return true;
   if (/^\d{4}-\d{2}-\d{2}/.test(text)) return true;
+  // "18:00" lo leería YAML 1.1 como un número sexagesimal, no como una hora.
+  if (/^\d+:\d+/.test(text)) return true;
   return false;
 }
