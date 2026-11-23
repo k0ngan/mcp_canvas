@@ -8,6 +8,41 @@ import { sanitizeName } from "./vault.mjs";
 
 const BLOCK = /<\/?(p|div|br|li|ul|ol|tr|table|h[1-6]|blockquote|section|article|header|footer|pre)\b[^>]*>/gi;
 
+/*
+ * Los archivos que solo existen como enlace dentro del HTML de Canvas.
+ *
+ * `files(courseId)` no los lista todos. Hay cursos donde el profesor deja la
+ * pestaña Archivos deshabilitada y cuelga el material de enlaces en el syllabus
+ * o en el enunciado de una tarea:
+ *
+ *   <a href=".../courses/31188/files/1335417?location=course_syllabus_31188">
+ *     PROGRAMA ASIGNATURA.docx</a>
+ *
+ * Para ese curso la API de archivos devuelve cero, así que sin leer el HTML ese
+ * material no existe para el vault: no se descarga, no se extrae y no se puede
+ * citar en una guía. Un curso entero puede quedar vacío teniendo su programa
+ * publicado.
+ *
+ * Tiene que correr ANTES de `htmlToText`, que borra toda etiqueta y se queda
+ * solo con el texto del enlace; el `href` se pierde ahí.
+ *
+ * Solo se aceptan los del MISMO curso: un enlace a `/courses/otro/files/...` es
+ * material de otro ramo y no le toca estar en esta carpeta.
+ */
+const ENLACE_DE_ARCHIVO = /\/(?:api\/v1\/)?courses\/(\d+)\/files\/(\d+)/gi;
+
+export function fileIdsEnHtml(html, courseId) {
+  const encontrados = new Set();
+  if (!html) return encontrados;
+  const curso = Number(courseId);
+  if (!Number.isInteger(curso) || curso < 1) return encontrados;
+
+  for (const coincidencia of String(html).matchAll(ENLACE_DE_ARCHIVO)) {
+    if (Number(coincidencia[1]) === curso) encontrados.add(Number(coincidencia[2]));
+  }
+  return encontrados;
+}
+
 export function htmlToText(html) {
   if (!html) return "";
   return String(html)

@@ -204,3 +204,78 @@ test("sin vault configurado las tools de lectura siguen funcionando", async () =
   const novedades = await call(handle, "canvas_course_updates", { course_id: 4101 });
   assert.equal(novedades.announcements.length, 1);
 });
+
+/* ───────── archivos que solo existen como enlace en el HTML ───────── */
+
+test("un archivo colgado del syllabus se descarga y se cita como cualquier otro", async () => {
+  /*
+   * El caso que dejaba un curso entero vacio. Con la pestaña Archivos
+   * deshabilitada, `/files` devuelve [] y el programa de la asignatura cuelga de
+   * un enlace del syllabus. Sin leer ese HTML el material no existe para el
+   * vault: no se descarga, no se extrae y no se puede citar en una guia.
+   */
+  const PROGRAMA = {
+    id: 1335417,
+    display_name: "PROGRAMA ASIGNATURA.pdf",
+    filename: "PROGRAMA+ASIGNATURA.pdf",
+    "content-type": "application/pdf",
+    size: 8,
+    updated_at: "2026-08-01T12:00:00Z",
+    url: "https://canvas.example.edu/files/1335417/download?verifier=y",
+  };
+  const conEnlace = {
+    ...CURSO,
+    syllabus_body: '<p>Programa: <a class="inline_disabled" '
+      + 'href="https://canvas.example.edu/courses/4101/files/1335417?location=course_syllabus_4101&amp;wrap=1"'
+      + ">PROGRAMA ASIGNATURA.pdf</a></p>",
+  };
+
+  const vaultDir = tempVault();
+  const config = testConfig({ vaultDir });
+  const { fetchImpl } = fakeCanvas({
+    "/api/v1/courses": [conEnlace],
+    "/api/v1/courses/4101": conEnlace,
+    // La pestaña Archivos no lista nada: es justo el caso.
+    "/api/v1/courses/4101/files": [],
+    "/api/v1/courses/4101/files/1335417": PROGRAMA,
+    "/api/v1/courses/4101/modules": [],
+  });
+  const handle = createHandler(config, fetchImpl);
+
+  const data = await call(handle, "canvas_sync_course", { course_id: 4101, download_files: true });
+
+  assert.equal(data.descargas, 1, "el archivo enlazado se descarga");
+
+  const carpeta = path.join(vaultDir, "Canvas", "Segundo semestre 2026", "4101-demo1001-101-teoria-2026-2-materia-de-ejemplo");
+  assert.ok(
+    fs.existsSync(path.join(carpeta, "Archivos", "1335417 - PROGRAMA ASIGNATURA.pdf.md")),
+    "y le queda su nota, igual que a cualquier archivo",
+  );
+  assert.ok(
+    fs.readdirSync(path.join(carpeta, "Descargas")).some(n => n.startsWith("1335417-")),
+    "y el binario queda en Descargas",
+  );
+});
+
+test("un enlace roto no bota la sincronizacion del curso", async () => {
+  // Un enlace puede apuntar a un archivo borrado o que esta persona no ve. Se
+  // anota y el resto del curso se sincroniza igual.
+  const conEnlaceRoto = {
+    ...CURSO,
+    syllabus_body: '<a href="/courses/4101/files/999999">borrado.pdf</a>',
+  };
+  const vaultDir = tempVault();
+  const config = testConfig({ vaultDir });
+  const { fetchImpl } = fakeCanvas({
+    "/api/v1/courses": [conEnlaceRoto],
+    "/api/v1/courses/4101": conEnlaceRoto,
+    "/api/v1/courses/4101/files": [ARCHIVO],
+  });
+  const handle = createHandler(config, fetchImpl);
+
+  const data = await call(handle, "canvas_sync_course", { course_id: 4101 });
+
+  assert.ok(data.errores.archivo_enlazado_999999, "queda anotado que ese enlace fallo");
+  const carpeta = path.join(vaultDir, "Canvas", "Segundo semestre 2026", "4101-demo1001-101-teoria-2026-2-materia-de-ejemplo");
+  assert.ok(fs.existsSync(path.join(carpeta, "Curso.md")), "y el curso se sincronizo igual");
+});
