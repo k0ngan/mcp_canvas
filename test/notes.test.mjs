@@ -313,3 +313,48 @@ test("el índice del semestre reproduce el frontmatter del vault", () => {
   assert.equal(note.relativePath, path.join("Canvas", "Segundo semestre 2026.md"));
   assert.ok(note.body.includes(`- [[${FOLDER_ELECTRO.wiki}/Curso]] — DEMO1001-101-TEORIA-2026-2: MATERIA DE EJEMPLO`));
 });
+
+/* ───────── archivos enlazados en el HTML ───────── */
+
+test("fileIdsEnHtml encuentra el archivo colgado de un enlace del syllabus", () => {
+  /*
+   * El caso de verdad: un curso con la pestaña Archivos deshabilitada, donde el
+   * programa de la asignatura cuelga de un enlace del syllabus. Para ese curso
+   * la API de archivos devuelve cero, así que sin leer el HTML el material no
+   * existe para el vault.
+   */
+  const html = '<a class="inline_disabled preview_in_overlay" title="PROGRAMA.docx" '
+    + 'href="https://canvas.example.edu/courses/4101/files/1335417?location=course_syllabus_4101&amp;wrap=1" '
+    + 'target="_blank" data-canvas-previewable="false">PROGRAMA.docx</a>';
+
+  assert.deepEqual([...notes.fileIdsEnHtml(html, 4101)], [1335417]);
+});
+
+test("acepta la forma /api/v1/ y no repite el mismo archivo", () => {
+  const html = [
+    '<a href="/courses/4101/files/10">uno</a>',
+    '<a href="/courses/4101/files/10?wrap=1">el mismo otra vez</a>',
+    '<a data-api-endpoint="https://canvas.example.edu/api/v1/courses/4101/files/11">dos</a>',
+  ].join("\n");
+  assert.deepEqual([...notes.fileIdsEnHtml(html, 4101)].sort((a, b) => a - b), [10, 11]);
+});
+
+test("un enlace a otro curso no entra a esta carpeta", () => {
+  // Es material de otro ramo: ponerlo aquí mezclaria dos cursos en el vault.
+  const html = '<a href="/courses/9999/files/77">de otro ramo</a>';
+  assert.equal(notes.fileIdsEnHtml(html, 4101).size, 0);
+});
+
+test("sin HTML, sin curso o con un enlace que no es de archivo, no devuelve nada", () => {
+  assert.equal(notes.fileIdsEnHtml("", 4101).size, 0);
+  assert.equal(notes.fileIdsEnHtml(null, 4101).size, 0);
+  assert.equal(notes.fileIdsEnHtml('<a href="/courses/4101/files/10">x</a>', undefined).size, 0);
+  assert.equal(notes.fileIdsEnHtml('<a href="/courses/4101/assignments/10">tarea</a>', 4101).size, 0);
+});
+
+test("htmlToText sigue borrando el enlace, y por eso esto corre antes", () => {
+  // Si algun dia htmlToText conservara la URL, esta prueba lo diria: el
+  // detector dejaria de ser necesario y habria que revisar el orden.
+  const html = '<a href="/courses/4101/files/10">PROGRAMA.docx</a>';
+  assert.equal(notes.htmlToText(html), "PROGRAMA.docx");
+});

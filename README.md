@@ -257,6 +257,20 @@ dirá en `excluidas` con `sin texto extraído` en lugar de inventarlo.
 Lo que la persona escribió debajo del centinela `canvas:fin` **no se devuelve como fuente**: la
 guía se arma con lo que vino de Canvas, no con los apuntes propios.
 
+### Los archivos que la API no lista
+
+`/courses/<id>/files` no devuelve todo. Hay cursos con la pestaña Archivos deshabilitada donde el
+profesor cuelga el material de enlaces en el syllabus o en el enunciado de una tarea, y para esos
+la API de archivos devuelve cero: un curso entero puede quedar vacío en el vault teniendo su
+programa publicado.
+
+Así que la sincronización lee el HTML crudo del syllabus, las páginas, los enunciados, los anuncios
+y las discusiones, saca los `/courses/<id>/files/<file_id>` que encuentre, y pide la ficha de los
+que no venían en la lista. Desde ahí siguen el camino de siempre: se descargan y se les escribe la
+misma nota que a cualquier archivo. Solo se aceptan los del mismo curso, y hay un tope de 50 por
+curso para que un syllabus con cien enlaces no se convierta en cien peticiones; si se pasa, queda
+dicho en `errores`. Un enlace roto o sin permiso se anota y no bota el resto.
+
 ## Cómo convive con las notas que ya existen
 
 1. **Reutiliza la carpeta del curso.** Antes de crear `<course_id>-<slug>` busca una carpeta que

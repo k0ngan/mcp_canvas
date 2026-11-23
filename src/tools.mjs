@@ -324,6 +324,7 @@ export class Toolbox {
       includeAnnouncements: args.include_announcements !== false,
       includeDiscussions: args.include_discussions !== false,
       pageBodies: true,
+      syllabusBody: course.syllabus_body,
     });
     const result = await this.writeCourse(writer, course, detail, {
       downloadFiles: Boolean(args.download_files),
@@ -354,6 +355,7 @@ export class Toolbox {
           includeAnnouncements: args.include_announcements !== false,
           includeDiscussions: args.include_discussions !== false,
           pageBodies: args.page_bodies !== false,
+          syllabusBody: course.syllabus_body,
         });
         const written = await this.writeCourse(writer, course, detail, {
           downloadFiles: Boolean(args.download_files),
@@ -369,7 +371,51 @@ export class Toolbox {
 
   // Un recurso deshabilitado en el curso responde 404 y no debe tumbar la
   // sincronización completa: se anota el error y se sigue con el resto.
-  async loadCourse(courseId, { includeAnnouncements, includeDiscussions, pageBodies }) {
+  /*
+   * Los archivos enlazados en el HTML que la API de archivos no lista.
+   *
+   * El por qué está en `fileIdsEnHtml`, en notes.mjs. Aquí solo se resuelven:
+   * por cada id que aparezca en un HTML y no esté ya listado, se pide su ficha
+   * para que traiga `display_name`, `url` y `size`. Con eso el archivo entra por
+   * el mismo camino que cualquier otro —se descarga igual, se le escribe la
+   * misma nota— y no hace falta una forma de nota nueva.
+   *
+   * Hay tope. Un syllabus con cien enlaces serían cien peticiones, y este
+   * cliente tiene límites en todo lo demás por la misma razón.
+   */
+  async archivosEnlazados(courseId, htmls, yaListados, errores) {
+    const conocidos = new Set(yaListados.map(file => Number(file.id)));
+    const pendientes = new Set();
+
+    for (const html of htmls) {
+      for (const fileId of notes.fileIdsEnHtml(html, courseId)) {
+        if (!conocidos.has(fileId)) pendientes.add(fileId);
+      }
+    }
+    if (!pendientes.size) return [];
+
+    const tope = 50;
+    const ids = [...pendientes].slice(0, tope);
+    if (pendientes.size > tope) {
+      errores.archivos_enlazados = `Se encontraron ${pendientes.size} archivos enlazados en el HTML y se resolvieron los primeros ${tope}.`;
+    }
+
+    const extra = [];
+    for (const fileId of ids) {
+      try {
+        const file = await this.client.file(courseId, fileId);
+        if (file?.id) extra.push(file);
+      } catch (error) {
+        // Un enlace puede apuntar a un archivo borrado, o a uno que esta
+        // persona no puede ver. Se anota y se sigue: el resto del curso no
+        // tiene por qué perderse por un enlace roto.
+        errores[`archivo_enlazado_${fileId}`] = error.message;
+      }
+    }
+    return extra;
+  }
+
+  async loadCourse(courseId, { includeAnnouncements, includeDiscussions, pageBodies, syllabusBody = "" }) {
     const errores = {};
     const load = async (name, loader) => {
       try {
@@ -404,7 +450,33 @@ export class Toolbox {
         }
       }
     }
-    return { modules, pages: detailedPages, assignments, files, announcements, discussions, errores };
+    /*
+     * El HTML se lee crudo y entero, de todos los sitios donde Canvas deja
+     * contenido escrito por el profesor. El syllabus llega como argumento
+     * porque vive en el objeto del curso, no en ninguna de estas listas.
+     */
+    const enlazados = await this.archivosEnlazados(
+      courseId,
+      [
+        syllabusBody,
+        ...detailedPages.map(page => page.body),
+        ...assignments.map(assignment => assignment.description),
+        ...announcements.map(announcement => announcement.message),
+        ...discussions.map(discussion => discussion.message),
+      ],
+      files,
+      errores,
+    );
+
+    return {
+      modules,
+      pages: detailedPages,
+      assignments,
+      files: [...files, ...enlazados],
+      announcements,
+      discussions,
+      errores,
+    };
   }
 
   async writeCourse(writer, course, detail, { downloadFiles }) {
